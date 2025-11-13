@@ -42,6 +42,16 @@ async def analyze_github_contributions(username: str, client) -> dict:
                 except Exception as e:
                     print(f"Error processing {repo['full_name']}: {e}")
 
+        # Debug: Print all_commits format
+        print(f"\nDEBUG - all_commits format:")
+        print(f"Total commits: {len(all_commits)}")
+        if all_commits:
+            print(f"First commit: {all_commits[0]}")
+            print(f"Commit keys: {list(all_commits[0].keys())}")
+            import json
+            print("Sample commits (first 3):")
+            print(json.dumps(all_commits[:3], indent=2))
+
         # 3. Get detailed commit info
         print(f"\nGetting detailed information for {len(all_commits)} commits...")
         detailed_commits = []
@@ -61,7 +71,6 @@ async def analyze_github_contributions(username: str, client) -> dict:
 
 async def test_github_server(prompt: str = None):
     """Main function that processes different GitHub-related operations based on the prompt."""
-    print("Starting GitHub Server...")
     client = None
     
     async def create_new_client():
@@ -77,7 +86,6 @@ async def test_github_server(prompt: str = None):
 
     async def handle_closed_connection():
         nonlocal client
-        print("Recreating client due to closed connection...")
         client = await create_new_client()
         tools = await client.get_tools()
         return create_agent("gpt-4", tools=tools)
@@ -99,7 +107,6 @@ async def test_github_server(prompt: str = None):
                     wait_ms = int(wait_match.group(1))
                     wait_time = (wait_ms / 1000.0) + 0.1  # Convert to seconds and add small buffer
             
-            print(f"\nWaiting {wait_time:.2f}s before retry {retry_count + 1}/{max_retries}")
             await asyncio.sleep(wait_time)
             
             if "ClosedResourceError" in error_str:
@@ -113,7 +120,6 @@ async def test_github_server(prompt: str = None):
         
         # If no prompt is provided, initialize client and return
         if not prompt:
-            print("No specific operation requested.")
             return True
             
         # Parse the prompt to determine the operation
@@ -144,18 +150,15 @@ async def test_github_server(prompt: str = None):
                 print(f"Last Commit: {summary['date_range']['last_commit']}")
             print("-" * 50)
         else:
-            print("No GitHub analysis operation requested in the prompt.")
+            pass
             
-        print("\nOperation complete!")
         return True
 
     except Exception as e:
-        print(f"Error in test_github_server: {e}")
         return False
 
 if __name__ == "__main__":
     import sys
     prompt = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else None
     result = asyncio.run(test_github_server(prompt))
-    print(f"\nResults:")
     print(f"Github server: {'✓' if result else '✗'}")

@@ -1,6 +1,7 @@
 from typing import List, Dict
 from datetime import datetime
 from langchain.tools import BaseTool
+import json
 
 from typing import Any
 
@@ -19,26 +20,62 @@ class SearchRepositoriesTool(BaseTool):
     
     async def _arun(self, username: str) -> List[Dict]:
         try:
+            # Get all available tools from the client
             tools = await self.client.get_tools()
+            
+            # Find and call search_repositories tool directly
             search_tool = next((tool for tool in tools if tool.name == "search_repositories"), None)
             if not search_tool:
                 raise Exception("search_repositories tool not found")
             
-            result = await self.client.invoke_tool(search_tool, {"query": f"user:{username}"})
-            if isinstance(result, dict) and "items" in result:
-                repos = [
-                    {
-                        "name": repo["name"],
-                        "full_name": repo["full_name"],
+            # Use GitHub API search syntax to find repositories owned by the user
+            params = {"query": f"user:{username}"}
+            
+            # Debug: Print which tool will be called and with what parameters
+            print(f"DEBUG - Calling tool: search_repositories")
+            print(f"DEBUG - Tool parameters: {params}")
+            
+            result = await search_tool.arun(params)
+            
+            # Debug: Print the result
+            print(f"DEBUG - Tool result type: {type(result)}")
+            print(f"DEBUG - Tool result: {result[:200] if isinstance(result, str) else result}")
+            
+            # Parse the response to extract repository information
+            response = result
+            if isinstance(response, str):
+                try:
+                    response = json.loads(response)
+                except json.JSONDecodeError:
+                    pass
+            
+            # Handle different possible response formats
+            if isinstance(response, dict):
+                if "items" in response:
+                    repos = response["items"]
+                elif "repositories" in response:
+                    repos = response["repositories"]
+                else:
+                    repos = [response]
+            elif isinstance(response, list):
+                repos = response
+            else:
+                repos = []
+            
+            # Normalize the response format
+            normalized_repos = []
+            for repo in repos:
+                if isinstance(repo, dict):
+                    normalized_repos.append({
+                        "name": repo.get("name", ""),
+                        "full_name": repo.get("full_name", repo.get("name", "")),
                         "private": repo.get("private", False),
                         "description": repo.get("description", ""),
                         "created_at": repo.get("created_at"),
                         "updated_at": repo.get("updated_at")
-                    }
-                    for repo in result["items"]
-                ]
-                return repos
-            return []
+                    })
+            
+            return normalized_repos
         except Exception as e:
             raise Exception(f"Error searching repositories: {e}")
     
@@ -65,14 +102,21 @@ class ListUserCommitsTool(BaseTool):
             if not list_commits_tool:
                 raise Exception("list_commits tool not found")
             
-            result = await self.client.invoke_tool(list_commits_tool, {
+            result = await list_commits_tool.arun({
                 "owner": owner,
                 "repo": repo,
                 "author": username
             })
             
+            # Parse if result is a JSON string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    return []
+            
             if isinstance(result, list):
-                return [{"sha": commit["sha"], "repository": f"{owner}/{repo}"} for commit in result]
+                return [{"sha": commit.get("sha", ""), "repository": f"{owner}/{repo}"} for commit in result if isinstance(commit, dict)]
             return []
             
         except Exception as e:
@@ -98,11 +142,18 @@ class GetCommitDetailsTool(BaseTool):
             if not get_commit_tool:
                 raise Exception("get_commit tool not found")
             
-            result = await self.client.invoke_tool(get_commit_tool, {
+            result = await get_commit_tool.arun({
                 "owner": owner,
                 "repo": repo,
-                "ref": commit_sha
+                "sha": commit_sha
             })
+            
+            # Parse if result is a JSON string
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    raise Exception(f"Could not parse commit details response: {result}")
             
             return {
                 "sha": result["sha"],
@@ -168,9 +219,3 @@ class SummarizeCommitHistoryTool(BaseTool):
             
         except Exception as e:
             raise Exception(f"Error summarizing commits: {e}")
-            
-        except Exception as e:
-            raise Exception(f"Error getting commits: {e}")
-    
-    def _run(self):
-        raise NotImplementedError("This tool only supports async execution")
