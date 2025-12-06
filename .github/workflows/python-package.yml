@@ -11,7 +11,6 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,21 +19,40 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # REQUIRED for SonarQube analysis
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
+        # Install coverage, pytest, and flake8
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
+        python -m pip install flake8 pytest coverage pytest-cov
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Lint with flake8
       run: |
-        # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
+        
+    # --- MODIFIED: Generate coverage report on the highest Python version only ---
+    - name: Test and Generate Coverage Report
+      if: matrix.python-version == '3.11' # Only run scan once per workflow
       run: |
-        pytest
+        # This command runs tests and generates the coverage.xml file needed by SonarQube
+        pytest --cov=. --cov-report=xml:coverage.xml
+        
+    # --- SONARQUBE CLOUD ANALYSIS (Runs only after all steps pass) ---
+    - name: SonarQube Scan
+      if: matrix.python-version == '3.11'
+      uses: SonarSource/sonarqube-scan-action@v6
+      env:
+        # You must set this secret in your GitHub repository
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
+      with:
+        args: >
+          # Tell SonarQube where the coverage report is located
+          -Dsonar.python.coverage.reportPaths=coverage.xml
+          # Optional: Specify the branch name if needed, usually 'main' is default
+          -Dsonar.branch.name=main
